@@ -5,6 +5,9 @@
 	$in_queued = get_user_meta($vendor_id,'ebay_in_queued',true);
 	$proccessing_bar = get_user_meta($vendor_id,'ebay_proccessing_bar',true);
 	$functions = new wcfmEbayFunctions;
+	// echo '<pre>';
+	// print_r(getCurrentVisitorCountry());
+	//echo get_option('timezone_string');
 	?>
 	<div class="collapse wcfm-collapse" id="wcfm_eBay_vendor_form_listing">
 		<div class="wcfm-page-headig">
@@ -45,7 +48,7 @@
 							$form_setting_unsold_items  = true;
 						}
 						if(!isset($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_discount_amount'])){
-							$form_setting_discount_amount  = 'half';
+							$form_setting_discount_amount  = 0;
 						}
 						if(isset($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_sold_items']) && !empty($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_sold_items'])){
 							$form_setting_sold_items = $wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_sold_items'];
@@ -72,15 +75,15 @@
 						if(isset($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_quantity_update_on_ebay']) && !empty($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_quantity_update_on_ebay'])){
 							$quantity_update_on_ebay = $wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_quantity_update_on_ebay'];
 						}
-						if(isset($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_days_synchronize']) && !empty($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_days_synchronize']) && $wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_days_synchronize']){
-							if(isset($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_days_to_activate']) && !empty($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_days_to_activate'])){
-								$days_to_activate = $wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_days_to_activate'];
-							}else{
-								$days_to_activate = 0;
-							}
-						}else{
-							$days_to_activate = 0;
-						}
+						// if(isset($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_days_synchronize']) && !empty($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_days_synchronize']) && $wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_days_synchronize']){
+						// 	if(isset($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_days_to_activate']) && !empty($wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_days_to_activate'])){
+						// 		$days_to_activate = $wcfm_ie_options[$vendor_id]['wcfm_ie_form_setting_days_to_activate'];
+						// 	}else{
+						// 		$days_to_activate = 1;
+						// 	}
+						// }else{
+						// 	$days_to_activate = 1;
+						// }
 					}
 					?>
 					<?php 
@@ -132,7 +135,7 @@
 						<?php if(isset($in_queued) && $in_queued == true){ ?>
 							<div class="alert alert-info alert-dismissible fade show queued" role="alert">
 								<b>Your import is queued.</b> We'll begin processing it soon.
-								<span style="float: right;">Created <?php echo date('d, F Y h:i A',strtotime($vendor_product_request['date_added']));  ?></span>
+								<span style="float: right;">Created <?php echo date('d, F Y h:i a',strtotime($vendor_product_request['date_added']));  ?></span>
 							</div>
 						<?php } ?>
 						<?php if(isset($proccessing_bar) && $proccessing_bar == true){ ?>
@@ -177,12 +180,12 @@
 												<li>Import new and revised items (overwrite all existing items)</li>
 											<?php } ?>
 											<?php if($form_setting_discount_price || $form_setting_without_bin || $form_setting_unsold_items){ ?>
-												<h3> Item price and status </h3>
+												<h3> Item price and item details </h3>
 											<?php } ?>
 											<?php if($form_setting_discount_price){
-												$discount_amount_text = 'the full amount';
-												if($form_setting_discount_amount=='half'){
-													$discount_amount_text = 'half the amount';
+												$discount_amount_text = '0%';
+												if($form_setting_discount_amount){
+													$discount_amount_text = sprintf('%s%s',$form_setting_discount_amount,'%');
 												}
 												?>
 												<li>Discount prices by <?php echo $discount_amount_text; ?> saved on Fizno.</li>
@@ -202,11 +205,11 @@
 											<?php if($quantity_update_on_ebay){ ?>
 												<li>Update the item quantity on eBay after a Fizno sale</li>
 											<?php } ?>
-											<?php if(isset($days_to_activate) && !empty($days_to_activate)){ ?>
+											<?php /* if(isset($days_to_activate) && !empty($days_to_activate)){ ?>
 												<li>Sync your booth with eBay and wait <?php echo $days_to_activate; ?> days to post any new items</li>
 											<?php }else{ ?>
 												<li>Sync your booth with eBay and don't wait to post any new items</li>
-											<?php } ?>
+											<?php } */ ?>
 										</ul>
 										<p>
 											<form action="" id="cancel_importing_form" method="post">
@@ -261,7 +264,6 @@
 							});
 							var channel = pusher.subscribe('fizno');
 							channel.bind('importing_'+user_id, function(data) {
-								console.log(data.percentage);
 								document.getElementById('done').innerText = data.done;
 								document.getElementById('total_products').innerText = data.total;
 								document.getElementById('progress_bar').style.width = data.percentage+'%';
@@ -410,7 +412,7 @@
 											</div>
 											<div class="import_option_row">
 												<div aria-hidden="true" class="import_option_description">
-													Item price and status 
+													Item price and item details 
 												</div>
 												<div class="import_option_contents">
 													<div class="import_option_content_setting">
@@ -424,183 +426,207 @@
 																			<label class="dual_input" for="ebay_item_importer_discount_price">
 																				Discount prices by
 																			</label>
-																			<select class="sub_input" name="ebay_item_importer[discount_amount]" id="ebay_item_importer_discount_amount">
-																				<option value="full" <?php echo($form_setting_discount_amount=='full'?'selected="selected"':''); ?> >
-																					the full amount
-																				</option>
-																				<option value="half" <?php echo($form_setting_discount_amount=='half'?'selected="selected"':''); ?>>
-																					half the amount
-																				</option>
-																			</select>
+																			<input type="number" name="ebay_item_importer[discount_amount]" id="ebay_item_importer_discount_amount" class="wcfm-import-export-input" value="<?php echo $form_setting_discount_amount; ?>" oninput="this.value|=0">%
 																			<span>saved on Fizno.</span>
-																			<span class="boosts_traffic">
-																				Boosts traffic
-																			</span>
 																		</label>
 																	</div>
 																</div>
 															</li>
-															<li><div class="import_option_content">
-																<div class="import_option_content_setting">
-																	<input type="checkbox" value="1" name="ebay_item_importer[import_items_without_bin]" id="ebay_item_importer_import_items_without_bin" <?php echo(isset($form_setting_without_bin)&&$form_setting_without_bin==true?'checked="checked"':''); ?> >
-																	<label for="ebay_item_importer_import_items_without_bin">
-																		Import auctions without a "Buy it Now" price
-																	</label>
-																</div>
-																<div class="import_option_content_elaboration">
-																	<div class="option_explanation">
-																		<a title="Import Items Without BIN" class="tooltip text_tip" id="Import_Items_Without_BIN15" href="javascript:void(0)" data-tip="
-																		By default, Fizno will only import items that have a 'Buy it Now' price.
-																		However, if you want to import your items that don't have a BIN price, you
-																		can check this option and we will grab those listings as well as your BIN
-																		listings.
-																		<br>
-																		<br>
-																		You will then need to set prices for those items after they are imported.
-																		">more info</a>
+															<li>
+																<div class="import_option_content">
+																	<div class="import_option_content_setting">
+																		<input type="checkbox" value="1" name="ebay_item_importer[quantity_update_on_ebay]" id="ebay_item_importer_quantity_update_on_ebay" <?php echo(isset($quantity_update_on_ebay) && $quantity_update_on_ebay?'checked="checked"':''); ?> >
+																		<label for="ebay_item_importer_quantity_update_on_ebay">
+																			<span>Update the item quantity on eBay after a Fizno sale</span>
+																		</label>
+																	</div>
+																	<div class="import_option_content_elaboration">
+																		<div class="option_explanation">
+																			<a title="Reduce eBay Quantity" class="tooltip text_tip" id="Import_Unsold_Items31" href="javascript:void(0)" data-tip="
+																			This will ensure that you don't double-sell items by decrementing quantity
+																			of items on eBay when they sell on Fizno.
+																			<br>
+																			<br>
+																			If you only have one of the item posted on eBay, we will end the listing where eBay policy permits it.
+																			<br>
+																			<br>
+																			Note that we ONLY decrement items on eBay after you have agreed
+																			to an offer or received payment on Fizno (i.e., items won't be removed
+																			from eBay when a buyer proposes an offer or doesn't complete checkout)
+																			">more info</a>
+																		</div></div>
+																	</div>
+																</li>
+															<?php /*<li>
+																<div class="import_option_content">
+																	<div class="import_option_content_setting">
+																		<input type="checkbox" value="1" name="ebay_item_importer[import_items_without_bin]" id="ebay_item_importer_import_items_without_bin" <?php echo(isset($form_setting_without_bin)&&$form_setting_without_bin==true?'checked="checked"':''); ?> >
+																		<label for="ebay_item_importer_import_items_without_bin">
+																			Import auctions without a "Buy it Now" price
+																		</label>
+																	</div>
+																	<div class="import_option_content_elaboration">
+																		<div class="option_explanation">
+																			<a title="Import Items Without BIN" class="tooltip text_tip" id="Import_Items_Without_BIN15" href="javascript:void(0)" data-tip="
+																			By default, Fizno will only import items that have a 'Buy it Now' price.
+																			However, if you want to import your items that don't have a BIN price, you
+																			can check this option and we will grab those listings as well as your BIN
+																			listings.
+																			<br>
+																			<br>
+																			You will then need to set prices for those items after they are imported.
+																			">more info</a>
+																		</div>
 																	</div>
 																</div>
-															</div>
-														</li>
-														<li>
-															<div class="import_option_content">
-																<div class="import_option_content_setting">
-																	<input type="checkbox" value="1" name="ebay_item_importer[import_unsold_items]" id="ebay_item_importer_import_unsold_items" <?php echo(isset($form_setting_unsold_items)&&$form_setting_unsold_items==true?'checked="checked"':''); ?>>
-																	<label for="ebay_item_importer_import_unsold_items">
-																		Import expired items from your "Unsold" folder
-																	</label>
-																</div>
-																<div class="import_option_content_elaboration">
-																	<div class="option_explanation">
-																		<a title="Import Unsold Items" class="tooltip text_tip" id="Import_Unsold_Items31" href="javascript:void(0)" data-tip="
-																		By default, Fizno will only import items that are actively for sale.
-																		Check this option to import items that expired in the last 60 days without
-																		being sold. We're unable to import ended listings from your 'Unsold' folder.
-																		Those listings will be skipped.
-																		">more info</a>
+															</li> 
+															<li>
+																<div class="import_option_content">
+																	<div class="import_option_content_setting">
+																		<input type="checkbox" value="1" name="ebay_item_importer[import_unsold_items]" id="ebay_item_importer_import_unsold_items" <?php echo(isset($form_setting_unsold_items)&&$form_setting_unsold_items==true?'checked="checked"':''); ?>>
+																		<label for="ebay_item_importer_import_unsold_items">
+																			Import expired items from your "Unsold" folder
+																		</label>
+																	</div>
+																	<div class="import_option_content_elaboration">
+																		<div class="option_explanation">
+																			<a title="Import Unsold Items" class="tooltip text_tip" id="Import_Unsold_Items31" href="javascript:void(0)" data-tip="
+																			By default, Fizno will only import items that are actively for sale.
+																			Check this option to import items that expired in the last 60 days without
+																			being sold. We're unable to import ended listings from your 'Unsold' folder.
+																			Those listings will be skipped.
+																			">more info</a>
+																		</div>
 																	</div>
 																</div>
-															</div>
-														</li>
-													</ul>
-												</label>
-											</fieldset>
-										</div>
-									</div>
-								</div>
-								<a class="show_advanced_options" href="javascript:void(0)">Show more import options</a>
-								<div class="advanced_options hide">
-									<a class="hide_advanced_options" href="javascript:void(0)">Hide advanced options</a>
-									<div class="import_option_row">
-										<div class="import_option_description">
-											Item details and syncing
-										</div>
-										<div class="import_option_contents">
-											<div class="import_option_content">
-												<div class="import_option_content_setting">
-													<input type="checkbox" value="1" name="ebay_item_importer[import_feedback]" id="ebay_item_importer_import_feedback" <?php echo(isset($form_setting_import_feedback) && $form_setting_import_feedback?'checked="checked"':''); ?> >
-													<label for="ebay_item_importer_import_feedback">
-														<span>Include eBay item feedback</span>
-													</label>
-												</div>
-												<div class="import_option_content_elaboration">
-													<div class="option_explanation">
-														<a title="Import eBay Feedback" class="tooltip text_tip" id="Import_Unsold_Items31" href="javascript:void(0)" data-tip="
-														Select this option to import your overall feedback counts. Note that these numbers are estimated
-														from overall feedback count and percentages, so they may not be exact (but the percentage will be).
-														">more info</a>
-													</div></div>
-												</div>
-												<div class="import_option_content">
-													<div class="import_option_content_setting">
-														<input type="checkbox" value="1" name="ebay_item_importer[quantity_update_on_ebay]" id="ebay_item_importer_quantity_update_on_ebay" <?php echo(isset($quantity_update_on_ebay) && $quantity_update_on_ebay?'checked="checked"':''); ?> >
-														<label for="ebay_item_importer_quantity_update_on_ebay">
-															<span>Update the item quantity on eBay after a Fizno sale</span>
+																</li> */ ?>
+															</ul>
 														</label>
-													</div>
-													<div class="import_option_content_elaboration">
-														<div class="option_explanation">
-															<a title="Reduce eBay Quantity" class="tooltip text_tip" id="Import_Unsold_Items31" href="javascript:void(0)" data-tip="
-															This will ensure that you don't double-sell items by decrementing quantity
-															of items on eBay when they sell on Fizno.
-															<br>
-															<br>
-															If you only have one of the item posted on eBay, we will end the listing where eBay policy permits it.
-															<br>
-															<br>
-															Note that we ONLY decrement items on eBay after you have agreed
-															to an offer or received payment on Fizno (i.e., items won't be removed
-															from eBay when a buyer proposes an offer or doesn't complete checkout)
-															">more info</a>
-														</div></div>
-													</div>
-													<div class="import_option_content">
-														<div class="import_option_content_setting">
-															<input class="main_input" type="checkbox" value="1" name="ebay_item_importer[synchronize]" id="ebay_item_importer_synchronize" <?php echo(isset($days_to_activate)?'checked="checked"':''); ?>  >
-															<label class="dual_input" for="ebay_item_importer_synchronize">
-																<span>Sync your booth with eBay and</span>
-																<select class="sub_input" name="ebay_item_importer[days_to_activate]" id="ebay_item_importer_days_to_activate">
-																	<option value="0" <?php echo(isset($days_to_activate) && !$days_to_activate?'selected="selected"':''); ?> >don't wait</option>
-																	<option value="1" <?php echo(isset($days_to_activate) && $days_to_activate==1?'selected="selected"':''); ?> >wait 1 day</option>
-																	<option value="3" <?php echo(isset($days_to_activate) && $days_to_activate==3?'selected="selected"':''); ?>>wait 3 days</option>
-																	<option value="5" <?php echo(isset($days_to_activate) && $days_to_activate==5?'selected="selected"':''); ?>>wait 5 days</option>
-																</select>
-																<span>to post any new items</span>
-															</label>
-														</div>
-														<div class="import_option_content_elaboration">
-															<div class="option_explanation">
-																<a title="Synchronize and Delay" class="tooltip text_tip" id="Import_Unsold_Items31" href="javascript:void(0)" data-tip="
-																This will sync your Fizno booth with your eBay account. This option will delete any eBay items you previously imported unless they are still in your eBay store. Any items that you created on Fizno will not be deleted.
-																<p>
-																	You can also choose to delay any new items we receive from eBay.
-																	Some sellers want to review their imported listings before those items are
-																	put up for sale on Fizno. This option lets you control how long
-																	newly-imported items will sit in your store before we post them live for
-																	buyers to purchase.
-																</p>
-																<p>
-																	During this time, you can edit or delete imported items. You can also visit your booth
-																	and click the 'Update' button to manually activate imported items.
-																</p>
-																">more info</a>
-															</div></div>
-														</div>
-													</div>
+													</fieldset>
 												</div>
 											</div>
 										</div>
+										<?php /* <a class="show_advanced_options" href="javascript:void(0)">Show more import options</a>
+										<div class="advanced_options">
+											<a class="hide_advanced_options" href="javascript:void(0)">Hide advanced options</a>
+											<div class="import_option_row">
+												<div class="import_option_description">
+													Item details and syncing
+												</div>
+												<div class="import_option_contents">
+													<div class="import_option_content_setting">
+														<div class="import_option_content">
+															<div class="import_option_content_setting">
+																<input type="checkbox" value="1" name="ebay_item_importer[import_feedback]" id="ebay_item_importer_import_feedback" <?php echo(isset($form_setting_import_feedback) && $form_setting_import_feedback?'checked="checked"':''); ?> >
+																<label for="ebay_item_importer_import_feedback">
+																	<span>Include eBay item feedback</span>
+																</label>
+															</div>
+															<div class="import_option_content_elaboration">
+																<div class="option_explanation">
+																	<a title="Import eBay Feedback" class="tooltip text_tip" id="Import_Unsold_Items31" href="javascript:void(0)" data-tip="
+																	Select this option to import your overall feedback counts. Note that these numbers are estimated
+																	from overall feedback count and percentages, so they may not be exact (but the percentage will be).
+																	">more info</a>
+																</div></div>
+															</div>
+															<ul>
+																<li>
+																	<div class="import_option_content">
+																		<div class="import_option_content_setting">
+																			<input type="checkbox" value="1" name="ebay_item_importer[quantity_update_on_ebay]" id="ebay_item_importer_quantity_update_on_ebay" <?php echo(isset($quantity_update_on_ebay) && $quantity_update_on_ebay?'checked="checked"':''); ?> >
+																			<label for="ebay_item_importer_quantity_update_on_ebay">
+																				<span>Update the item quantity on eBay after a Fizno sale</span>
+																			</label>
+																		</div>
+																		<div class="import_option_content_elaboration">
+																			<div class="option_explanation">
+																				<a title="Reduce eBay Quantity" class="tooltip text_tip" id="Import_Unsold_Items31" href="javascript:void(0)" data-tip="
+																				This will ensure that you don't double-sell items by decrementing quantity
+																				of items on eBay when they sell on Fizno.
+																				<br>
+																				<br>
+																				If you only have one of the item posted on eBay, we will end the listing where eBay policy permits it.
+																				<br>
+																				<br>
+																				Note that we ONLY decrement items on eBay after you have agreed
+																				to an offer or received payment on Fizno (i.e., items won't be removed
+																				from eBay when a buyer proposes an offer or doesn't complete checkout)
+																				">more info</a>
+																			</div></div>
+																		</div>
+																	</li>
+																	<li>
+																		<div class="import_option_content">
+																			<div class="import_option_content_setting">
+																				<input class="main_input" type="checkbox" value="1" name="ebay_item_importer[synchronize]" id="ebay_item_importer_synchronize" <?php echo(isset($days_to_activate)?'checked="checked"':''); ?>  >
+																				<label class="dual_input" for="ebay_item_importer_synchronize">
+																					<span>Sync your booth with eBay and</span>
+																					<select class="sub_input" name="ebay_item_importer[days_to_activate]" id="ebay_item_importer_days_to_activate">
+																						<option value="0" <?php echo(isset($days_to_activate) && !$days_to_activate?'selected="selected"':''); ?> >don't wait</option>
+																						<option value="1" <?php echo(isset($days_to_activate) && $days_to_activate==1?'selected="selected"':''); ?> >wait 1 day</option>
+																						<option value="3" <?php echo(isset($days_to_activate) && $days_to_activate==3?'selected="selected"':''); ?>>wait 3 days</option>
+																						<option value="5" <?php echo(isset($days_to_activate) && $days_to_activate==5?'selected="selected"':''); ?>>wait 5 days</option>
+																					</select>
+																					<span>to post any new items</span>
+																				</label>
+																			</div>
+																			<div class="import_option_content_elaboration">
+																				<div class="option_explanation">
+																					<a title="Synchronize and Delay" class="tooltip text_tip" id="Import_Unsold_Items31" href="javascript:void(0)" data-tip="
+																					This will sync your Fizno booth with your eBay account. This option will delete any eBay items you previously imported unless they are still in your eBay store. Any items that you created on Fizno will not be deleted.
+																					<p>
+																						You can also choose to delay any new items we receive from eBay.
+																						Some sellers want to review their imported listings before those items are
+																						put up for sale on Fizno. This option lets you control how long
+																						newly-imported items will sit in your store before we post them live for
+																						buyers to purchase.
+																					</p>
+																					<p>
+																						During this time, you can edit or delete imported items. You can also visit your booth
+																						and click the 'Update' button to manually activate imported items.
+																					</p>
+																					">more info</a>
+																				</div></div>
+																			</div>
+																		</li>
+																	</ul>
+																</div>
+															</div>
+														</div>
+														</div> */ ?>
+													</div>
+												</div>
+												<input type="submit" name="commit" <?php echo (!geteBayVendors()?'disabled="disabled" title="Connect atleast one account before importing"':'') ?> value="Start your eBay import" class="button_large submit_import_job" data-disable-with="Start your eBay import">
+											</form>
+										</div>
 									</div>
-									<input type="submit" name="commit" <?php echo (!geteBayVendors()?'disabled="disabled" title="Connect atleast one account before importing"':'') ?> value="Start your eBay import" class="button_large submit_import_job" data-disable-with="Start your eBay import">
-								</form>
+									<div id="wcfm-coupons_processing" class="dataTables_processing" style="display: none;">
+										<div class="process_text">Processing...</div>
+									</div>
+									<div class="wcfm-clearfix"></div>
+									<br>
+									<div id="error_response">
+									</div>
+								</div>
+								<div class="wcfm-clearfix"></div>
 							</div>
-						</div>
-						<div id="wcfm-coupons_processing" class="dataTables_processing" style="display: none;">
-							<div class="process_text">Processing...</div>
-						</div>
-						<div class="wcfm-clearfix"></div>
-						<br>
-						<div id="error_response">
+							<div class="wcfm-clearfix"></div>
 						</div>
 					</div>
-					<div class="wcfm-clearfix"></div>
-				</div>
-				<div class="wcfm-clearfix"></div>
-			</div>
-		</div>
-		<script type="text/javascript">
-			jQuery(document).ready(function($){
-				$('.show_advanced_options').click(function(){
-					if($(this).next('.advanced_options').hasClass('hide')){
-						$(this).next('.advanced_options').removeClass('hide');
-						$(this).addClass('hide');
-					}
+			<?php /* <script type="text/javascript">
+				jQuery(document).ready(function($){
+					$('.show_advanced_options').click(function(){
+						if($(this).next('.advanced_options').hasClass('hide')){
+							$(this).next('.advanced_options').removeClass('hide');
+							$(this).addClass('hide');
+						}
+					});
+					$('.hide_advanced_options').click(function(){
+						if($('.show_advanced_options').hasClass('hide')){
+							$('.show_advanced_options').removeClass('hide');
+							$('.advanced_options').addClass('hide');
+						}
+					});
 				});
-				$('.hide_advanced_options').click(function(){
-					if($('.show_advanced_options').hasClass('hide')){
-						$('.show_advanced_options').removeClass('hide');
-						$('.advanced_options').addClass('hide');
-					}
-				});
-			});
-		</script>
+			</script> *?>

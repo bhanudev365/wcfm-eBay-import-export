@@ -47,6 +47,7 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 		$this->plugin_path      = plugin_dir_path( __DIR__ );
 		$this->logs_path     	= plugin_dir_path( __DIR__ ).'logs/';
 		$this->log_file     	= plugin_dir_path( __DIR__ ).'logs/error.log';
+		$this->disabled_posttypes  = array('page');
 		$this->product_header_column = array(
 			'product_id','product_title','description','quantity','regular_price','featured_image','gallery_images','category_id','category_name','feedback_score','feedback_percent','stock_status','condition'
 		);
@@ -66,6 +67,7 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 				add_filter( 'pre_get_document_title', array($this,'wcfm_importing_site_title') );
 			}
 		}
+		//add_filter( 'post_thumbnail_html', array( $this, 'wcfm_is_overwrite_thumbnail_with_url' ), 99, 5);
 		add_filter( 'wcfm_is_force_shipping_address', '__return_true' );
 		add_action("addEbayVendorProductData", array($this,'addEbayVendorProductData'));
 		add_action("addWcfmEbayProductHook",array( $this, 'addWcfmEbayProductHook' ));
@@ -87,10 +89,20 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 		add_action( 'woocommerce_update_product', array($this,'action_woocommerce_update_product'), 10, 1 ); 
 		add_filter( 'wc_product_sku_enabled', '__return_false' );
 
-
-		//echo $this->upload_dir['path'] . '/' . $this->get_img_token($gallery_image).'.jpg';
+		add_action( 'add_meta_boxes', array( $this, 'wcfm_ie_add_metabox' ), 30, 2 );
+		add_filter( 'post_thumbnail_html', array( $this, 'wcfm_ie_overwrite_thumbnail_with_url' ), 999, 5);
+		add_filter( 'woocommerce_structured_data_product', array( $this, 'wcfm_ie_woo_structured_data_product_support' ), 99, 2 );
+		if( !is_admin() || ( defined( 'DOING_AJAX' ) && DOING_AJAX ) ){
+			add_action( 'init', array( $this, 'wcfm_ie_set_thumbnail_id_true' ),99,2 );
+			add_filter( 'wp_get_attachment_image_src', array( $this, 'wcfm_ie_replace_attachment_image_src' ), 10, 4 );
+			add_filter( 'woocommerce_product_get_gallery_image_ids', array( $this, 'wcfm_ie_set_customized_gallary_ids' ), 99, 2 );
+		}
+		add_action( 'admin_init', array( $this, 'wcfm_ie_woo_thumb_support' ) );
+		add_filter('woocommerce_product_get_image_id', array( $this, 'wcfm_ie_woocommerce_36_support'), 99, 2);
+		add_filter( 'woocommerce_admin_order_item_thumbnail', array($this,'display_product_image_in_order_item'), 10, 3 );
 
 	}
+	
 	public function action_woocommerce_update_product( $product_id ) {
 		if(isset($product_id) && !empty($product_id) && (int)$product_id ){
 			$ebay_item_id = get_post_meta( $product_id, '_sku', true );
@@ -165,7 +177,6 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 
 	public function addProductFileData($ebay_user_response,$vendor_id){
 		global $wpdb;
-		//$this->setLog(json_encode($ebay_user_response));
 		if(isset($ebay_user_response['Ack']) && $ebay_user_response['Ack']=='Success'){
 			$ebay_user_id = $ebay_user_response['Seller']['UserID'];
 			$from_date = $ebay_user_response['from_date'];
@@ -215,7 +226,6 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 						}
 
 						if( ($product_import_setting['wcfm_ie_form_setting_sold_items'] == 'remove_sold') && ($ebay_vendor_data['SellingStatus']['QuantitySold'] == '1' && $ebay_vendor_data['SellingStatus']['ListingStatus'] == 'Completed') || $ebay_vendor_data['SellingStatus']['ListingStatus'] == 'Ended' )  {
-							//$this->setLog('Sold: '.$ebay_vendor_data['ItemID']);
 							try{
 								$product_id = $this->get_product_id_by_sku($ebay_vendor_data['ItemID']);
 								if($product_id){
@@ -238,7 +248,6 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 
 						if(isset($product_import_setting['wcfm_ie_form_setting_revise']) && ($product_import_setting['wcfm_ie_form_setting_revise'] == 'true')){
 							$modified_product_query = "SELECT ebay_item_id FROM ".$this->modified_products." WHERE vendor_id = '".$vendor_id."' AND ebay_user_id = '".$ebay_user_id."' AND ebay_item_id = '".$ebay_vendor_data['ItemID']."' LIMIT 1  ";
-							//$this->setLog('Query:'.$modified_product_query);
 							$ebay_item_id = $wpdb->get_var($modified_product_query);
 							$ItemID = $this->get_product_id_by_sku($ebay_vendor_data['ItemID']);
 							if(!$ebay_item_id && $ItemID){
@@ -248,16 +257,16 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 
 						$price = $ebay_vendor_data['StartPrice'];
 						
-						if(isset($product_import_setting['wcfm_ie_form_setting_discount_price']) && $product_import_setting['wcfm_ie_form_setting_discount_price'] && $product_import_setting['wcfm_ie_form_setting_discount_amount'] =='full' && $ebay_vendor_data['StartPrice'] > 0 ){
-							$price = ($ebay_vendor_data['StartPrice'] * 90)/100;
+						if(isset($product_import_setting['wcfm_ie_form_setting_discount_price']) && $product_import_setting['wcfm_ie_form_setting_discount_price'] && $product_import_setting['wcfm_ie_form_setting_discount_amount'] && $ebay_vendor_data['StartPrice'] > 0 ){
+							$price = $ebay_vendor_data['StartPrice']-($ebay_vendor_data['StartPrice']*$product_import_setting['wcfm_ie_form_setting_discount_amount']/100);
 						}
-						if((isset($product_import_setting['wcfm_ie_form_setting_without_bin']) && $product_import_setting['wcfm_ie_form_setting_without_bin']==true) && (isset($ebay_vendor_data['ListingDetails']['BuyItNowAvailable']) && $ebay_vendor_data['ListingDetails']['BuyItNowAvailable'] == 'true' ) ){
-							continue;
-						}else{
-							if(isset($ebay_vendor_data['ListingDetails']['BuyItNowAvailable']) && $ebay_vendor_data['ListingDetails']['BuyItNowAvailable'] == 'true' ){
-								$price = $ebay_vendor_data['BuyItNowPrice'];
-							}
-						}
+						// if((isset($product_import_setting['wcfm_ie_form_setting_without_bin']) && $product_import_setting['wcfm_ie_form_setting_without_bin']==true) && (isset($ebay_vendor_data['ListingDetails']['BuyItNowAvailable']) && $ebay_vendor_data['ListingDetails']['BuyItNowAvailable'] == 'true' ) ){
+						// 	continue;
+						// }else{
+						// 	if(isset($ebay_vendor_data['ListingDetails']['BuyItNowAvailable']) && $ebay_vendor_data['ListingDetails']['BuyItNowAvailable'] == 'true' ){
+						// 		$price = $ebay_vendor_data['BuyItNowPrice'];
+						// 	}
+						// }
 						
 						if(isset($ebay_vendor_data['SellingStatus']['ListingStatus']) && ($product_import_setting['wcfm_ie_form_setting_sold_items'] == 'remove' && $ebay_vendor_data['SellingStatus']['ListingStatus'] == 'Ended') ) {
 							continue;
@@ -282,13 +291,22 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 						}else{
 							$feedback_percent = '';
 						}
+
+						if(isset($ebay_vendor_data['PictureDetails']['GalleryURL']) && !empty($ebay_vendor_data['PictureDetails']['GalleryURL'])){
+							$featured_image = esc_url( remove_query_arg($arr_params, $ebay_vendor_data['PictureDetails']['GalleryURL'] ) );
+						}elseif(sizeof($gallery_images)>0){
+							$featured_image = $gallery_images[0];
+						}else{
+							$featured_image = '';
+						}
+
 						$product_data[] = array(
 							'product_id'		=>	$ebay_vendor_data['ItemID'],
 							'product_title'		=>	$ebay_vendor_data['Title'],
 							'description'		=>	$ebay_vendor_data['Description'],
 							'quantity'			=>	$ebay_vendor_data['Quantity'],
 							'regular_price'		=>	$price,
-							'featured_image'	=>	esc_url( remove_query_arg($arr_params, $ebay_vendor_data['PictureDetails']['GalleryURL'] ) ),
+							'featured_image'	=>	$featured_image,
 							'gallery_images'	=>	$additional_images,
 							'category_id'		=>	$ebay_vendor_data['PrimaryCategory']['CategoryID'],
 							'category_name'		=>	$category_name,
@@ -394,7 +412,7 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 			}
 		}else{
 			//try{
-			if(isset($ebay_user_response['Errors']) && $ebay_user_response['Errors']['ErrorCode']=='17470'){
+			if(isset($ebay_user_response['Errors']) && ($ebay_user_response['Errors']['ErrorCode']==17470||$ebay_user_response['Errors']['ErrorCode']==931)){
 				$wpdb->delete( $this->tablename, array( 'vendor_id' => $vendor_id,'is_primary' => '1' ) );
 			}
 			$wcfm_ie_alert[$vendor_id]['alert']['type'] = 'danger';
@@ -792,16 +810,30 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 				}
 				return $post_id;
 			}
-			$filename       = basename($this->get_img_token($product['featured_image']).'.jpg');
+			if($product['featured_image']){
+				$filename = basename($this->get_img_token($product['featured_image']).'.jpg');
+			}else{
+				$filename = '';
+			}
 			$gallery_images = array();
+			$file = '';
+			$file_url = '';
 			if( wp_mkdir_p( $this->upload_dir['path'] ) ) {
-				$file = $this->upload_dir['path'] . '/' . $filename;
-				$file_url = $this->upload_dir['url'] . '/' . $filename;
+
+				if($filename){
+					$file = $this->upload_dir['path'] . '/' . $filename;
+					$file_url = $this->upload_dir['url'] . '/' . $filename;
+				}
+
 				$upload_dir = $this->upload_dir['path'];
 				$upload_url = $this->upload_dir['url'];
 			} else {
-				$file = $this->upload_dir['basedir'] . '/' . $filename;
-				$file_url = $this->upload_dir['baseurl'] . '/' . $filename;
+
+				if($filename){	
+					$file = $this->upload_dir['basedir'] . '/' . $filename;
+					$file_url = $this->upload_dir['baseurl'] . '/' . $filename;
+				}
+
 				$upload_dir = $this->upload_dir['basedir'];
 				$upload_url = $this->upload_dir['baseurl'];
 			}
@@ -822,35 +854,64 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 				));
 
 				update_post_meta( $post_id, '_ebay_user_id', $ebay_user_id );
-				try{
-					if(!file_exists($file)){
-						$attach_id = $this->Generate_Featured_Image($product['featured_image'],$post_id);
-						set_post_thumbnail( $post_id, $attach_id );
-					}else{
-						$attach_id = attachment_url_to_postid($file_url );
-						set_post_thumbnail( $post_id, $attach_id );
-					}
-				}catch(Exception $e){
-					$this->setLog('Featured Image: '.$e->getMessage());
+
+
+				if(isset($product['featured_image']) && !empty($product['featured_image'])){
+					$featured_image_arg = array(
+						'img_url'	=>	$product['featured_image'],
+						'alt'		=>	$this->get_img_token($gallery_image).'.jpg',
+						'height'	=>	1600,
+						'width'		=>	1600,
+					);
+					update_post_meta( $post_id, '_ebay_product_featured_image', $featured_image_arg );
 				}
-				try{
-					if(isset($product['gallery_images']) && !empty($product['gallery_images'])){
-						$gallery_images = explode(',', $product['gallery_images']);
-						if(sizeof($gallery_images)>0){
-							$attach_ids = array();
-							foreach ($gallery_images as $gallery_image) {
-								if(!file_exists($upload_dir . '/' . $this->get_img_token($gallery_image).'.jpg')){
-									$attach_ids[] = $this->Generate_Featured_Image($gallery_image,$post_id);
-								}else{
-									$attach_ids[] = attachment_url_to_postid($upload_url . '/' . $this->get_img_token($gallery_image).'.jpg');
-								}
-							}
-							update_post_meta($post_id, '_product_image_gallery', implode(',',$attach_ids));
+
+				if(isset($product['gallery_images']) && !empty($product['gallery_images'])){
+					$gallery_images = explode(',', $product['gallery_images']);
+					if(sizeof($gallery_images)>0){
+						$product_gallery_images = array();
+						foreach ($gallery_images as $gallery_image) {
+							$product_gallery_images[] = array(
+								'img_url'	=>	$gallery_image,
+								'alt'		=>	$this->get_img_token($gallery_image).'.jpg',
+								'height'	=>	1600,
+								'width'		=>	1600,
+							);
 						}
+						update_post_meta( $post_id, '_ebay_product_gallery_images', $product_gallery_images );
 					}
-				}catch(Exception $e){
-					$this->setLog('Gallery Image: '.$e->getMessage());
 				}
+
+				//$this->setLog($file);
+				// try{
+				// 	if(isset($file) && !empty($file) && !file_exists($file)){
+				// 		$attach_id = $this->Generate_Featured_Image($product['featured_image'],$post_id);
+				// 		set_post_thumbnail( $post_id, $attach_id );
+				// 	}elseif(isset($file) && !empty($file)){
+				// 		$attach_id = attachment_url_to_postid($file_url );
+				// 		set_post_thumbnail( $post_id, $attach_id );
+				// 	}
+				// }catch(Exception $e){
+				// 	$this->setLog('Featured Image: '.$e->getMessage());
+				// }
+				// try{
+				// 	if(isset($product['gallery_images']) && !empty($product['gallery_images'])){
+				// 		$gallery_images = explode(',', $product['gallery_images']);
+				// 		if(sizeof($gallery_images)>0){
+				// 			$attach_ids = array();
+				// 			foreach ($gallery_images as $gallery_image) {
+				// 				if(!file_exists($upload_dir . '/' . $this->get_img_token($gallery_image).'.jpg')){
+				// 					$attach_ids[] = $this->Generate_Featured_Image($gallery_image,$post_id);
+				// 				}else{
+				// 					$attach_ids[] = attachment_url_to_postid($upload_url . '/' . $this->get_img_token($gallery_image).'.jpg');
+				// 				}
+				// 			}
+				// 			update_post_meta($post_id, '_product_image_gallery', implode(',',$attach_ids));
+				// 		}
+				// 	}
+				// }catch(Exception $e){
+				// 	$this->setLog('Gallery Image: '.$e->getMessage());
+				// }
 				try{
 					if(!term_exists(sanitize_title($product['category_name']))){
 						$category_data = wp_insert_term( $product['category_name'], 'product_cat', array(
@@ -912,51 +973,80 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 
 				update_post_meta( $post_id, '_ebay_user_id', $ebay_user_id );
 
-				if(!file_exists($file)){
-					$attach_id = $this->Generate_Featured_Image($product['featured_image'],$post_id);
-					if($attach_id){
-						set_post_thumbnail( $post_id, $attach_id );
-					}
-				}else{
-					$attach_id = attachment_url_to_postid($file_url );
-					if($attach_id){
-						set_post_thumbnail( $post_id, $attach_id );
-					}
+				if(isset($product['featured_image']) && !empty($product['featured_image'])){
+					$featured_image_arg = array(
+						'img_url'	=>	$product['featured_image'],
+						'alt'		=>	basename($this->get_img_token($product['featured_image']).'.jpg'),
+						'height'	=>	1600,
+						'width'		=>	1600,
+					);
+					update_post_meta( $post_id, '_ebay_product_featured_image', $featured_image_arg );
 				}
+
 				if(isset($product['gallery_images']) && !empty($product['gallery_images'])){
 					$gallery_images = explode(',', $product['gallery_images']);
 					if(sizeof($gallery_images)>0){
-						$attach_ids = array();
+						$product_gallery_images = array();
 						foreach ($gallery_images as $gallery_image) {
-							if(!file_exists($upload_dir . '/' . $this->get_img_token($gallery_image).'.jpg')){
-								$attach_ids[] = $this->Generate_Featured_Image($gallery_image,$post_id);
-							}else{
-								$attach_ids[] = attachment_url_to_postid($upload_url . '/' . $this->get_img_token($gallery_image).'.jpg');
-							}
+							$product_gallery_images[] = array(
+								'img_url'	=>	$gallery_image,
+								'alt'		=>	basename($this->get_img_token($gallery_image).'.jpg'),
+								'height'	=>	1600,
+								'width'		=>	1600,
+							);
 						}
-						update_post_meta($post_id, '_product_image_gallery', implode(',',$attach_ids));
+						update_post_meta( $post_id, '_ebay_product_gallery_images', $product_gallery_images );
 					}
 				}
 
+				//$this->setLog($file);
+				// if(isset($file) && !empty($file) && !file_exists($file)){
+				// 	$attach_id = $this->Generate_Featured_Image($product['featured_image'],$post_id);
+				// 	if($attach_id){
+				// 		set_post_thumbnail( $post_id, $attach_id );
+				// 	}
+				// }elseif(isset($file) && !empty($file)){
+				// 	$attach_id = attachment_url_to_postid($file_url );
+				// 	if($attach_id){
+				// 		set_post_thumbnail( $post_id, $attach_id );
+				// 	}
+				// }
+				// if(isset($product['gallery_images']) && !empty($product['gallery_images'])){
+				// 	$gallery_images = explode(',', $product['gallery_images']);
+				// 	if(sizeof($gallery_images)>0){
+				// 		$attach_ids = array();
+				// 		foreach ($gallery_images as $gallery_image) {
+				// 			if(!file_exists($upload_dir . '/' . $this->get_img_token($gallery_image).'.jpg')){
+				// 				$attach_ids[] = $this->Generate_Featured_Image($gallery_image,$post_id);
+				// 			}else{
+				// 				$attach_ids[] = attachment_url_to_postid($upload_url . '/' . $this->get_img_token($gallery_image).'.jpg');
+				// 			}
+				// 		}
+				// 		update_post_meta($post_id, '_product_image_gallery', implode(',',$attach_ids));
+				// 	}
+				// }
+
 				if(isset($product['category_name']) && !empty($product['category_name'])){
 					if(!term_exists(sanitize_title($product['category_name']))){
-						$category_data = wp_insert_term( $product['category_name'], 'product_cat', array(
-							'slug' => sanitize_title($product['category_name'])
-						) );
-						if(!$this->is_cat_db($product['category_id'])){
-							$wpdb->delete( $this->cat_tablename, array( 'api_cat_id' => $product['category_id'] ) );
-							if(isset($category_data['term_id']) && $category_data['term_id']){
-								try{
+						try{
+							$category_data = wp_insert_term( $product['category_name'], 'product_cat', array(
+								'slug' => sanitize_title($product['category_name'])
+							) );
+							if(!$this->is_cat_db($product['category_id'])){
+								$wpdb->delete( $this->cat_tablename, array( 'api_cat_id' => $product['category_id'] ) );
+								if(isset($category_data['term_id']) && $category_data['term_id']){
+									
 									$cat_ins = $wpdb->insert( $this->cat_tablename , array(
 										'term_id'     =>  $category_data['term_id'],
 										'api_cat_id'  => $product['category_id']
 									));
-								}catch(Exception $e){
-									$this->setLog('Custom category insert: '.$e->getMessage());
+
 								}
 							}
+							wp_set_object_terms($post_id,$category_data['term_id'], 'product_cat');
+						}catch(Exception $e){
+							$this->setLog('Custom category insert: '.$e->getMessage());
 						}
-						wp_set_object_terms($post_id,$category_data['term_id'], 'product_cat');
 					}else{
 						try{
 							$term = get_term_by('slug', sanitize_title($product['category_name']), 'product_cat');
@@ -1137,8 +1227,6 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 	    } else {
 	    	$file = $this->upload_dir['basedir'] . '/' . $filename;
 	    }
-	    // $this->setLog('Filename:'. $filename);
-	    // $this->setLog('Image URL:'. $file);
 	    file_put_contents( $file, $image_data );
 	    $wp_filetype = wp_check_filetype( $filename, null );
 	    $attachment = array(
@@ -1148,12 +1236,12 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 	    	'post_status'    => 'inherit'
 	    );
 	    $attach_id = wp_insert_attachment( $attachment, $file, $post_id );
-	    $this->setLog('Attach ID:'. $attach_id);
 	    require_once(ABSPATH . 'wp-admin/includes/image.php');
 	    $attach_data = wp_generate_attachment_metadata( $attach_id, $file );
 	    wp_update_attachment_metadata( $attach_id, $attach_data );
 	    return $attach_id;
 	}
+	
 	public function get_product_id_by_sku($sku) {
 		global $wpdb;
 		$product_id = $wpdb->get_var("SELECT post_id FROM $wpdb->postmeta pm LEFT JOIN $wpdb->posts p ON(pm.post_id = p.ID) WHERE pm.meta_key='_sku' AND pm.meta_value='".$sku."' AND p.post_status IN ('publish','draft','private','pending') AND p.post_type = 'product'  LIMIT 1");
@@ -1471,9 +1559,7 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 			$primary_account_details = $this->geteBayVendor($vendor_id);
 			if(sizeof($primary_account_details)==0){
 				addAlert('danger','Please select the primary account.');
-				$res['type'] = 200;  
-				$res['redirect_url'] = get_wcfm_url().'/ebay-import-export-settings/';  
-				echo json_encode($res);
+				wp_redirect(get_wcfm_url().'ebay-import-export-settings');
 				die;
 			}
 			$vendor_setting_fields = array();
@@ -1508,7 +1594,7 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 				if(isset($_POST['ebay_item_importer']['days_to_activate']) && !empty($_POST['ebay_item_importer']['days_to_activate'])){
 					$days_to_activate = $_POST['ebay_item_importer']['days_to_activate'];
 				}else{
-					$days_to_activate = 0;
+					$days_to_activate = 1;
 				}
 			}else{
 				$days_synchronize = 0;
@@ -1533,13 +1619,13 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 
 			/**** Add cron event ********/
 			
-			$date_added = date('Y-m-d h:i:s');
+			$date_added = date('Y-m-d H:i:s');
 			$user_timezone = getCurrentVisitorCountry();
 			if(isset($user_timezone['geoplugin_timezone']) && !empty($user_timezone['geoplugin_timezone'])){
 				$current_timezone = $user_timezone['geoplugin_timezone'];
 				$dt = new DateTime();
 				$dt->setTimezone(new DateTimeZone($current_timezone));
-				$date_added = $dt->format('Y-m-d h:i:s');
+				$date_added = $dt->format('Y-m-d H:i:s');
 			}
 			$from_date = $this->min_date;
 			$end_date = date('Y-m-d',strtotime($this->min_date.'+120 days'));
@@ -1969,6 +2055,358 @@ class wcfmEbayImportExportVendorsAPi extends wcfmEbayFunctions{
 
 		return _set_cron_array( $crons, $wp_error );
 	}
+
+	public function wcfm_ie_get_image_sizes() {
+		global $_wp_additional_image_sizes;
+		$sizes = array();
+		foreach ( get_intermediate_image_sizes() as $_size ) {
+			if ( in_array( $_size, array('thumbnail', 'medium', 'medium_large', 'large') ) ) {
+				$sizes[ $_size ]['width']  = get_option( "{$_size}_size_w" );
+				$sizes[ $_size ]['height'] = get_option( "{$_size}_size_h" );
+				$sizes[ $_size ]['crop']   = (bool) get_option( "{$_size}_crop" );
+			} elseif ( isset( $_wp_additional_image_sizes[ $_size ] ) ) {
+				$sizes[ $_size ] = array(
+					'width'  => $_wp_additional_image_sizes[ $_size ]['width'],
+					'height' => $_wp_additional_image_sizes[ $_size ]['height'],
+					'crop'   => $_wp_additional_image_sizes[ $_size ]['crop'],
+				);
+			}
+		}
+		return $sizes;
+	}
+	public function wcfm_ie_get_image_size( $size ) {
+		$sizes = $this->wcfm_ie_get_image_sizes();
+		if( is_array( $size ) ){
+			$woo_size = array();
+			$woo_size['width'] = $size[0];
+			$woo_size['height'] = $size[1];
+			return $woo_size;
+		}
+		if ( isset( $sizes[ $size ] ) ) {
+			return $sizes[ $size ];
+		}
+		return false;
+	}
+
+	public function wcfm_ie_get_image_meta( $post_id, $is_single_page = false ){
+		
+		$image_meta  = array();
+
+		$img_url = get_post_meta( $post_id, '_ebay_product_featured_image', true );
+		
+		if( is_array( $img_url ) && isset( $img_url['img_url'] ) ){
+			$image_meta['img_url'] 	 = $img_url['img_url'];	
+		}else{
+			$image_meta['img_url'] 	 = $img_url;
+		}
+
+		$image_meta['img_alt'] 	 = $img_url['alt'];
+		if( ( 'product_variation' == get_post_type( $post_id ) || 'product' == get_post_type( $post_id ) ) && $is_single_page ){
+			if( isset( $img_url['width'] ) ){
+				$image_meta['width'] 	 = $img_url['width'];
+				$image_meta['height'] 	 = $img_url['height'];
+			}else{
+
+				if( isset( $image_meta['img_url'] ) && $image_meta['img_url'] != '' ){
+					$imagesize = @getimagesize( $image_meta['img_url'] );
+					$image_url = array(
+						'img_url' => $image_meta['img_url'],
+						'width'	  => isset( $imagesize[0] ) ? $imagesize[0] : '',
+						'height'  => isset( $imagesize[1] ) ? $imagesize[1] : ''
+					);
+					update_post_meta( $post_id,'_ebay_product_featured_image', $image_url );
+					$image_meta = $image_url;	
+				}				
+			}
+		}
+		return $image_meta;
+	}
+
+	public function wcfm_ie_get_wcgallary_meta( $post_id ){
+		
+		$image_meta  = array();
+
+		$gallary_images = get_post_meta( $post_id, '_ebay_product_gallery_images', true );
+		
+		if( !is_array( $gallary_images ) && $gallary_images != '' ){
+			$gallary_images = explode( ',', $gallary_images );
+			if( !empty( $gallary_images ) ){
+				$gallarys = array();
+				foreach ($gallary_images as $gallary_image ) {
+					$gallary = array();
+					$gallary['url'] = $gallary_image;
+					$imagesizes = @getimagesize( $gallary_image );
+					$gallary['width'] = isset( $imagesizes[0] ) ? $imagesizes[0] : '';
+					$gallary['height'] = isset( $imagesizes[1] ) ? $imagesizes[1] : '';
+					$gallarys[] = $gallary;
+				}
+				$gallary_images = $gallarys;
+				update_post_meta( $post_id, '_ebay_product_gallery_images', $gallary_images );
+				return $gallary_images;
+			}
+		}else{
+			if( !empty( $gallary_images ) ){
+				$need_update = false;
+				foreach ($gallary_images as $key => $gallary_image ) {
+					if( !isset( $gallary_image['width'] ) && isset( $gallary_image['url'] ) ){
+						$imagesizes1 = @getimagesize( $gallary_image['url'] );
+						$gallary_images[$key]['width'] = isset( $imagesizes1[0] ) ? $imagesizes1[0] : '';
+						$gallary_images[$key]['height'] = isset( $imagesizes1[1] ) ? $imagesizes1[1] : '';
+						$need_update = true;
+					}
+				}
+				if( $need_update ){
+					update_post_meta( $post_id, '_ebay_product_gallery_images', $gallary_images );
+				}
+				return $gallary_images;
+			}	
+		}
+		return $gallary_images;
+	}
+
+	public function wcfm_ie_replace_attachment_image_src( $image, $attachment_id, $size, $icon ) {
+		if( false !== strpos( $attachment_id, '_ebay_wcgallary__' ) ){
+			$attachment = explode( '__', $attachment_id );
+			$image_num  = $attachment[1];
+			$product_id = $attachment[2];
+			if( $product_id > 0 ){
+				$gallery_images = $this->wcfm_ie_get_wcgallary_meta( $product_id );
+				if( !empty( $gallery_images ) ){
+					if( !isset( $gallery_images[$image_num]['img_url'] ) ){
+						return false;
+					}
+					$url = $gallery_images[$image_num]['img_url'];
+
+					$image_size = $this->wcfm_ie_get_image_size( $size );
+					if ($url) {
+						if( $image_size ){
+							if( !isset( $image_size['crop'] ) ){
+								$image_size['crop'] = '';
+							}
+							return array(
+								$url,
+								$image_size['width'],
+								$image_size['height'],
+								$image_size['crop'],
+							);
+						}else{
+							if( $gallery_images[$image_num]['width'] != '' && $gallery_images[$image_num]['width'] > 0 ){
+								return array( $url, $gallery_images[$image_num]['width'], $gallery_images[$image_num]['height'], false );
+							}else{
+								return array( $url, 800, 600, false );
+							}
+						}
+					}
+				}
+			}
+		}
+
+
+		if( is_numeric($attachment_id ) && $attachment_id > 0 ){
+			$image_data = $this->wcfm_ie_get_image_meta( $attachment_id, true );
+			// if( !empty( $image_data['img_url'] ) ){
+			if ( isset( $image_data['img_url'] ) && $image_data['img_url'] != '' ){
+				$image_url = $image_data['img_url'];
+				$width = isset( $image_data['width'] ) ? $image_data['width'] : '';
+				$height = isset( $image_data['height'] ) ? $image_data['height'] : '';
+
+				$image_size = $this->wcfm_ie_get_image_size( $size );
+				if ($image_url) {
+					if( $image_size ){
+						if( !isset( $image_size['crop'] ) ){
+							$image_size['crop'] = '';
+						}
+						return array(
+							$image_url,
+							$image_size['width'],
+							$image_size['height'],
+							$image_size['crop'],
+						);
+					}else{
+						if( $width != '' && $height != '' ){
+							return array( $image_url, $width, $height, false );
+						}
+						return array( $image_url, 800, 600, false );
+					}
+				}
+			}
+		}
+		return $image;
+	}
+	
+	public function wcfm_ie_woocommerce_36_support( $value, $product){
+		$product_id = $product->get_id();
+		if(!empty($product_id)){
+			$post_type = get_post_type( $product_id );
+			$image_data = $this->wcfm_ie_get_image_meta( $product_id );
+			if ( isset( $image_data['img_url'] ) && $image_data['img_url'] != '' ){
+				return $product_id;
+			}
+		}
+		return $value;
+	}
+
+	public function wcfm_ie_set_customized_gallary_ids( $value, $product ){
+
+		if( $this->wcfm_ie_is_disallow_posttype( 'product') ){
+			return $value;
+		}
+
+		$product_id = $product->get_id();
+		if( empty( $product_id ) ){
+			return $value;
+		}
+		$gallery_images = $this->wcfm_ie_get_wcgallary_meta( $product_id );
+		if( !empty( $gallery_images ) ){
+			$i = 0;
+			foreach ( $gallery_images as $gallery_image ) {
+				$gallery_ids[] = '_ebay_wcgallary__'.$i.'__'.$product_id;
+				$i++;
+			}
+			return $gallery_ids;
+		}
+		return $value;
+	}
+
+	public function wcfm_ie_overwrite_thumbnail_with_url( $html, $post_id, $post_image_id, $size, $attr ){
+		if( $this->wcfm_ie_is_disallow_posttype( get_post_type( $post_id ) ) ){
+			return $html;
+		}
+
+		// if( is_singular( 'product' ) && ( 'product' == get_post_type( $post_id ) || 'product_variation' == get_post_type( $post_id ) ) ){
+		// 	return $html;
+		// }
+		
+		$image_data = $this->wcfm_ie_get_image_meta( $post_id );
+		if( !empty( $image_data['img_url'] ) ){
+			$image_url 		= $image_data['img_url'];
+
+			// Run Photon Resize Magic.
+			// if( apply_filters( 'wcfm_ie_user_resized_images', true ) ){
+			// 	$image_url = $this->wcfm_ie_resize_image_on_the_fly( $image_url, $size );	
+			// }
+
+			$image_alt	= ( $image_data['img_alt'] ) ? 'alt="'.$image_data['img_alt'].'"' : '';
+			$classes 	= 'external-img wp-post-image ';
+			$classes   .= ( isset($attr['class']) ) ? $attr['class'] : '';
+			$style 		= ( isset($attr['style']) ) ? 'style="'.$attr['style'].'"' : '';
+
+			$html = sprintf('<img src="%s" %s class="%s" %s />', 
+				$image_url, $image_alt, $classes, $style);
+		}
+		return $html;
+	}
+	public function wcfm_ie_woo_structured_data_product_support( $markup, $product ) {
+		if ( isset($markup['image']) && empty($markup['image']) ) {
+			$product_id = $product->get_id();
+			if($product_id > 0 ){
+				$image_data = $this->wcfm_ie_get_image_meta( $product_id );
+				if( !empty($image_data) && isset($image_data['img_url']) && !empty($image_data['img_url']) ) {
+					$markup['image'] = $image_data['img_url'];
+				}
+			}
+		}
+		return $markup;
+	}
+	public function wcfm_ie_set_thumbnail_id_true(){
+		foreach ( $this->wcfm_ie_get_posttypes() as $post_type ) {
+			add_filter( "get_{$post_type}_metadata", array( $this, 'wcfm_ie_set_thumbnail_true' ), 10, 4 );
+		}
+	}
+	public function wcfm_ie_set_thumbnail_true( $value, $object_id, $meta_key, $single ){
+		$post_type = get_post_type( $object_id );
+		if( $this->wcfm_ie_is_disallow_posttype( $post_type ) ){
+			return $value;
+		}
+
+		if ( $meta_key == '_thumbnail_id' ){
+			$image_data = $this->wcfm_ie_get_image_meta( $object_id );
+			if ( isset( $image_data['img_url'] ) && $image_data['img_url'] != '' ){
+				if( $post_type == 'product_variation' ){
+					if( !is_admin() ){
+						return $object_id;
+					}else{
+						return $value;
+					}
+				}
+				return $object_id;
+			}
+		}
+		return $value;
+	}
+	function wcfm_ie_is_disallow_posttype( $posttype ) {
+		return in_array( $posttype, $this->disabled_posttypes );
+	}
+	public function wcfm_ie_get_posttypes( $raw = false ) {
+
+		$post_types = array_diff( get_post_types( array( 'public'   => true ), 'names' ), array( 'nav_menu_item', 'attachment', 'revision' ) );
+		if( !empty( $post_types ) ){
+			foreach ( $post_types as $key => $post_type ) {
+				if( !post_type_supports( $post_type, 'thumbnail' ) ){
+					unset( $post_types[$key] );
+				}
+			}
+		}
+		if( $raw ){
+			return $post_types;	
+		}else{
+			$post_types = array_diff( $post_types, $this->disabled_posttypes );
+		}
+		return $post_types;
+	}
+	public function wcfm_ie_woo_thumb_support() {
+		global $pagenow;
+		if( 'edit.php' === $pagenow ){
+			global $typenow;
+			if( 'product' === $typenow && isset( $_GET['post_type'] ) && 'product' === sanitize_text_field( $_GET['post_type'] ) ){
+				add_filter( 'wp_get_attachment_image_src', array( $this, 'wcfm_ie_replace_attachment_image_src' ), 10, 4 );
+			}
+		}
+	}
+
+	function display_product_image_in_order_item( $product_image, $item_id, $item) {
+		$product_id =  $item->get_product_id();
+		$ebay_featured_image_data = get_post_meta($product_id,'_ebay_product_featured_image',true);
+		if($ebay_featured_image_data){
+
+			$product_image = '<img src="'.$ebay_featured_image_data['img_url'].'" alt="'.$ebay_featured_image_data['alt'].'" />';
+		}
+		return $product_image;
+	}
+
+	public function wcfm_ie_add_metabox( $post_type, $post ) {
+		if( in_array( $post_type, $this->disabled_posttypes ) ){
+			return;
+		}
+
+		add_meta_box( 'wcfm_ie_metabox',
+			__('Featured Image by URL', 'featured-image-by-url' ), 
+			array( $this, 'wcfm_ie_render_metabox' ),
+			'product',
+			'side',
+			'low'
+		);
+
+		add_meta_box( 'wcfm_ie_wcgallary_metabox',
+			__('Product gallery by URLs', 'featured-image-by-url' ), 
+			array( $this, 'wcfm_ie_render_wcgallary_metabox' ),
+			'product',
+			'side',
+			'low'
+		);
+
+	}
+	function wcfm_ie_render_wcgallary_metabox(  $post ) {
+		// Include WC Gallary Metabox Template.
+		include WCFM_IE_PLUGIN_DIR .'templates/wcfm-ie-wcgallary-metabox.php';
+
+	}
+	function wcfm_ie_render_metabox(  $post ) {
+		$image_meta = $this->wcfm_ie_get_image_meta(  $post->ID );
+		// Include Metabox Template.
+		include WCFM_IE_PLUGIN_DIR .'templates/wcfm-ie-metabox.php';
+	}
+	
 }
 
 /****** suggest
